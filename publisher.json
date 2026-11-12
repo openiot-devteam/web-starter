@@ -1,0 +1,10 @@
+{
+  "site": "my-first-site",
+  "outDir": "dist",
+  "build": "npm run build",
+  "spa": true,
+  "apiUrl": "https://q68c0wysje.execute-api.ap-northeast-2.amazonaws.com",
+  "collections": {
+    "guestbook": "guestbook"
+  }
+}
