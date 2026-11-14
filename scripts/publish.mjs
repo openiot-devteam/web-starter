@@ -14,17 +14,10 @@
 //
 // publisher.json
 //   { "site": "myshop", "outDir": "dist", "build": "npm run build", "spa": true,
-//     "apiUrl": "https://xxxx.execute-api.ap-northeast-2.amazonaws.com",
-//     "collections": { "guestbook": "guestbook", "inquiries": "form" } }
+//     "apiUrl": "https://xxxx.execute-api.ap-northeast-2.amazonaws.com" }
 //
-// collections — 사이트 화면에서 쓸 데이터 묶음. 배포할 때마다 서버를 이 설정에 맞춘다(없으면 만들고, 규칙이
-// 다르면 고친다. 여기서 빠진 컬렉션은 지우지 않는다). 값은 아래 이름 하나이거나 규칙 객체다.
-//   guestbook  누구나 읽기·쓰기                (방명록, 댓글)
-//   form       누구나 쓰기, 읽기는 주인만       (문의, 신청서 — 받은 내용은 대시보드에서 본다)
-//   board      누구나 읽기, 쓰기는 주인만       (공지, 메뉴판)
-//   poll       누구나 읽기·쓰기·고치기          (투표, 좋아요)
-//   private    전부 주인만
-//   { "read": "public", "create": "public", "update": "owner", "delete": "owner" }  ← 직접 정하기
+// 데이터와 파일은 콘솔의 데이터베이스 칸에서 DB를 만들고 이 사이트에 연결해 씁니다(README 의 'DB 쓰기').
+// 예전의 "collections" 설정은 더 이상 쓰지 않습니다. 남아 있으면 배포 전에 멈추고 안내합니다.
 //
 // 옵션: --site <이름>  --dir <폴더>  --spa / --no-spa  --skip-build  --dry-run  --help
 // 계약: docs/api.md 의 '배포 CLI'
@@ -108,8 +101,19 @@ function loadConfig(args) {
     apiKey: (process.env.PUBLISHER_API_KEY ?? "").trim(),
     skipBuild: !!args.skipBuild,
     dryRun: !!args.dryRun,
-    collections: parseCollections(file.collections),
   };
+
+  if (file.collections !== undefined) {
+    fail(
+      [
+        `${CONFIG_FILE} 의 "collections" 는 더 이상 쓰지 않습니다. 데이터는 이제 사이트가 아니라 DB에 있습니다.`,
+        "  1) 웹 퍼블리셔 콘솔의 데이터베이스 칸에서 데이터 DB를 만들고(예: shop) 이 사이트에 연결합니다.",
+        "  2) 그 DB 안에 컬렉션을 만듭니다.",
+        '  3) 사이트 코드의 webdb.collection("이름") 을 webdb.db("shop").collection("이름") 으로 바꿉니다.',
+        `  4) ${CONFIG_FILE} 에서 "collections" 를 지운 뒤 다시 배포합니다.`,
+      ].join("\n"),
+    );
+  }
 
   if (!cfg.site) {
     fail(`사이트 이름이 없습니다. ${CONFIG_FILE} 의 "site" 에 원하는 이름(영어 소문자·숫자·하이픈)을 적어 주세요.`);
@@ -128,51 +132,6 @@ function loadConfig(args) {
   }
   return cfg;
 }
-
-// ── 데이터 컬렉션 ───────────────────────────────────────────────────────────
-
-const RULE_PRESETS = {
-  guestbook: { read: "public", create: "public" },
-  form: { create: "public" },
-  board: { read: "public" },
-  poll: { read: "public", create: "public", update: "public" },
-  private: {},
-};
-const OPERATIONS = ["read", "create", "update", "delete"];
-const COLLECTION_RE = /^[a-z][a-z0-9_-]{0,39}$/;
-
-/** publisher.json 의 collections → [{ name, rules }]. 틀린 곳이 있으면 배포 전에 멈춘다. */
-function parseCollections(raw) {
-  if (raw === undefined || raw === null) return [];
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    fail(`${CONFIG_FILE} 의 "collections" 는 { "이름": "guestbook" } 모양이어야 합니다.`);
-  }
-  return Object.entries(raw).map(([name, value]) => {
-    if (!COLLECTION_RE.test(name)) {
-      fail(`컬렉션 이름 '${name}' 을 쓸 수 없습니다. 영어 소문자로 시작하고 소문자·숫자·-·_ 만 씁니다(최대 40자).`);
-    }
-    if (typeof value === "string") {
-      const rules = RULE_PRESETS[value];
-      if (!rules) fail(`'${name}' 의 "${value}" 는 모르는 종류입니다. ${Object.keys(RULE_PRESETS).join(", ")} 중에서 고르세요.`);
-      return { name, rules };
-    }
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      for (const [op, v] of Object.entries(value)) {
-        if (!OPERATIONS.includes(op)) fail(`'${name}' 의 "${op}" 는 모르는 동작입니다. ${OPERATIONS.join(", ")} 만 씁니다.`);
-        if (v !== "public" && v !== "owner") fail(`'${name}.${op}' 은 "public"(누구나) 또는 "owner"(주인만) 이어야 합니다.`);
-      }
-      return { name, rules: value };
-    }
-    fail(`'${name}' 의 값이 이상합니다. "guestbook" 같은 종류 이름이나 규칙 객체를 넣어 주세요.`);
-  });
-}
-
-const ruleSummary = (rules) =>
-  ["read:읽기", "create:쓰기", "update:고치기", "delete:지우기"]
-    .map((s) => s.split(":"))
-    .filter(([op]) => rules[op] === "public")
-    .map(([, label]) => label)
-    .join("·") || "주인만";
 
 // ── 서버 호출 ───────────────────────────────────────────────────────────────
 
@@ -323,7 +282,6 @@ async function main() {
   }
   if (cfg.dryRun) {
     for (const f of files) info(`${f.path}  ${formatBytes(f.size)}`);
-    for (const col of cfg.collections) info(`데이터 '${col.name}' — 누구나: ${ruleSummary(col.rules)}`);
     console.log(green("\n--dry-run: 여기까지만 확인했습니다. 실제로 올리지 않았습니다."));
     return;
   }
@@ -335,14 +293,6 @@ async function main() {
   });
   const { deployment, site, uploadBatchSize } = created;
   const base = `/v1/sites/${encodeURIComponent(site.slug)}/deployments/${deployment.deploymentId}`;
-
-  // 데이터 컬렉션 — 새 화면이 공개되기 전에 맞춰 둔다(화면이 먼저 뜨면 잠깐 404 가 난다).
-  for (const col of cfg.collections) {
-    const r = await api(cfg, "PUT", `/v1/sites/${encodeURIComponent(site.slug)}/collections/${col.name}`, {
-      rules: col.rules,
-    });
-    info(`데이터 '${r.name}' (${r.docCount.toLocaleString("en-US")}개) — 누구나: ${ruleSummary(r.rules)}`);
-  }
 
   // 4. 올리기
   step(4, "파일을 올립니다");
